@@ -1,19 +1,18 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
 using Exiled.Events.EventArgs;
 using Exiled.API.Features;
-using Exiled.Events.Handlers;
+using Exiled.API.Enums;
+using System;
+using MEC;
 
 namespace FFREVERSE.Handlers
 {
-    class Player
-    {
-		public static Dictionary<string, PlayerInfo> PlayerInfoDict = new Dictionary<string, PlayerInfo >();
+	class Player
+	{
+		public static Dictionary<string, PlayerInfo> PlayerInfoDict = new Dictionary<string, PlayerInfo>();
+		int rounds = 0;
 		private void addPlayer(Exiled.API.Features.Player p)
-        {
+		{
 			if (!PlayerInfoDict.ContainsKey(p.UserId))
 			{
 				Exiled.API.Features.Log.Info("Player with userID:" + p.UserId + " added to dict.");
@@ -21,7 +20,7 @@ namespace FFREVERSE.Handlers
 			}
 		}
 		private void updateDict()
-        {
+		{
 			IEnumerable<Exiled.API.Features.Player> PList = Exiled.API.Features.Player.List;
 			foreach (Exiled.API.Features.Player p in PList)
 			{
@@ -31,46 +30,90 @@ namespace FFREVERSE.Handlers
 		public void OnRoundStart()
 		{
 			updateDict();
+			rounds += 1;
+			if (rounds > FFREVERSE.Instance.Config.FFRounds)
+            {
+				foreach (Exiled.API.Features.Player p in Exiled.API.Features.Player.List)
+				{
+					PlayerInfo pinfo = PlayerInfoDict[p.UserId];
+					pinfo.teamDamage = 0;
+					pinfo.teamKills = 0;
+				}
+			}
 		}
-		public void OnJoin(JoinedEventArgs ev)
-        {
-			addPlayer(ev.Player);
+		public void OnJoin(VerifiedEventArgs ev)
+		{
+			if (ev.Player != null)
+            {
+				addPlayer(ev.Player);
+			}
 		}
 		public void OnKills(DyingEventArgs ev)
 		{
-			if (ev.Killer != null)
-            {
-				if (PlayerInfoDict.ContainsKey(ev.Killer.UserId))
-                {
-					addPlayer(ev.Killer);
-				}
-				PlayerInfo pinfo = PlayerInfoDict[ev.Killer.UserId];
-				if (ev.Killer.Role == ev.Target.Role)
-                {
-					pinfo.teamKills += 1;
-                }
+			
+			if (ev.HitInformation.GetDamageType() == DamageTypes.MicroHid && !FFREVERSE.Instance.Config.FFMicro)
+			{
+				return;
 			}
 			
-		}
-		public void OnDamage(HurtingEventArgs ev)
-        {
-			if (ev.Attacker != null)
-            {
-				if (PlayerInfoDict.ContainsKey(ev.Attacker.UserId))
+			if (ev.Killer != null && ev.Killer.UserId != ev.Target.UserId && Round.IsStarted)
+			{
+				PlayerInfo pinfo = PlayerInfoDict[ev.Killer.UserId];
+				Exiled.API.Enums.Side aTeam = pinfo.lastSide;
+				Exiled.API.Enums.Side tTeam = PlayerInfoDict[ev.Target.UserId].lastSide;
+				if (aTeam == tTeam)
 				{
-					addPlayer(ev.Attacker);
-				}
-				PlayerInfo pinfo = PlayerInfoDict[ev.Attacker.UserId];
-				if (ev.Attacker.Role == ev.Target.Role)
-				{
-					if (pinfo.teamKills >= FFREVERSE.Instance.Config.FFKills || pinfo.teamDamage >= FFREVERSE.Instance.Config.FFDamage)
-                    {
-						ev.Attacker.Hurt(ev.Amount,ev.Attacker);
-                    }
-					pinfo.teamDamage += ev.Amount;
+					pinfo.teamKills++;
 				}
 			}
-        }
 
+		}
+		public void OnSpawning(SpawningEventArgs ev)
+        {
+			PlayerInfo pinfo = PlayerInfoDict[ev.Player.UserId];
+			pinfo.lastSide = ev.Player.Side;
+		}
+		public void OnDamage(HurtingEventArgs ev)
+		{
+			if (!PlayerInfoDict.ContainsKey(ev.Attacker.UserId))
+			{
+				return;
+			}
+			
+			if (ev.DamageType == DamageTypes.MicroHid && !FFREVERSE.Instance.Config.FFMicro)
+            {
+				return;
+            }
+			PlayerInfo pinfo = PlayerInfoDict[ev.Attacker.UserId];
+			Exiled.API.Enums.Side aTeam = pinfo.lastSide;
+			Exiled.API.Enums.Side tTeam = PlayerInfoDict[ev.Target.UserId].lastSide;
+			if (aTeam == tTeam && ev.Attacker.Id != ev.Target.Id && Round.IsStarted)
+			{
+				double dmg = ev.Amount;
+				double multiplier = FFREVERSE.Instance.Config.FFMultiplier;
+				if (pinfo.teamKills >= FFREVERSE.Instance.Config.FFKills || pinfo.teamDamage >= FFREVERSE.Instance.Config.FFDamage)
+				{
+					ev.Attacker.ShowHint("<size=35><b><color=#F52929>Инверсия \"огня по своим\" включена</color></b></size> \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n", 5);
+					if (ev.DamageType == DamageTypes.Grenade)
+                    {
+						Timing.CallDelayed(0.4f, () => ev.Attacker.Hurt((float)(dmg * multiplier), ev.DamageType));
+                    }
+                    else
+                    {
+						ev.Attacker.Hurt((float)(dmg * multiplier), ev.DamageType/**ev.Attacker?.Nickname,ev.Attacker.Id**/);
+					}
+					ev.Attacker.EnableEffect("Bleeding", 1);
+					ev.IsAllowed = false;
+                }
+                else
+                {
+					if (pinfo.teamDamage>50)
+                    {
+						ev.Attacker.ShowHint("<size=35><color=#fad106>Не наносите урон своим союзникам</color></size> \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n", 3);
+					}
+					pinfo.teamDamage += (float)(dmg * multiplier);
+				}
+			}
+		}
 	}
 }
