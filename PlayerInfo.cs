@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using Exiled.API.Enums;
 
 namespace FFREVERSE
 {
@@ -10,6 +6,7 @@ namespace FFREVERSE
     {
         public int teamKills;
         public float teamDamage;
+        public Exiled.API.Enums.Side lastSide;
         public PlayerInfo()
         {
             teamKills = 0;
